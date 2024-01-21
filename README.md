@@ -1,123 +1,181 @@
 # HELP
 
 ```C++
-#include <Keypad.h>
-#include <GyverGFX.h>
-#include <RunningGFX.h>
-#include <GyverMAX7219.h>
-MAX7219 <1, 1, 10, 9, 11> mtrx;
-bool game = true;
-char keys[3][3] = {
-  {'0', 'U',  '0'},
-  {'L', '0',  'R'},
-  {'0', 'D',  '0'},
-};
-byte rowPins[3] = {3, 4, 5}; //connect to the row pinouts of the keypad
-byte colPins[3] = {6, 7, 8}; //connect to the column pinouts of the keypad
+#include <LedControl.h>
 
-Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, 3, 3);
-byte player[2] = {0, 7};
-byte maze[8][8] = {
-  {2, 1, 1, 1, 0, 0, 0, 0},
-  {0, 0, 0, 1, 0, 1, 1, 0},
-  {1, 1, 0, 1, 0, 1, 1, 0},
-  {1, 0, 0, 1, 0, 1, 1, 0},
-  {1, 0, 1, 1, 0, 0, 1, 0},
-  {1, 0, 0, 0, 1, 1, 1, 0},
-  {1, 1, 1, 0, 0, 0, 0, 0},
-  {1, 1, 1, 1, 1, 0, 1, 1}
-};
-byte visual[8][8] = {
-  {0, 0, 0, 0, 0, 0, 0, 0},
-  {0, 0, 0, 0, 0, 0, 0, 0},
-  {0, 0, 0, 0, 0, 0, 0, 0},
-  {0, 0, 0, 0, 0, 0, 0, 0},
-  {0, 0, 0, 0, 0, 0, 0, 0},
-  {0, 0, 0, 0, 0, 0, 0, 0},
-  {0, 0, 0, 0, 0, 0, 0, 0},
-  {0, 0, 0, 0, 0, 0, 0, 0}
+//Define The Snake as a Struct
+typedef struct Snake Snake;
+struct Snake{
+  int head[2];     // the (row, column) of the snake head
+  int body[40][2]; //An array that contains the (row, column) coordinates
+  int len;         //The length of the snake 
+  int dir[2];      //A direction to move the snake along
 };
 
+//Define The Apple as a Struct
+typedef struct Apple Apple;
+struct Apple{
+  int rPos; //The row index of the apple
+  int cPos; //The column index of the apple
+};
+
+//MAX72XX led Matrix
+const int DIN = 9;
+const int CS =10;
+const int CLK = 11;
+LedControl lc = LedControl(DIN, CLK, CS,1);
+
+const int varXPin = A0;//X Value  from Joystick
+const int varYPin = A1;//Y Value from Joystick
+
+byte pic[8] = {0,0,0,0,0,0,0,0};//The 8 rows of the LED Matrix
+
+Snake snake = {{1,5},{{0,5}, {1,5}}, 2, {1,0}};//Initialize a snake object
+Apple apple = {(int)random(0,8),(int)random(0,8)};//Initialize an apple object
+
+//Variables To Handle The Game Time
+float oldTime = 0;
+float timer = 0;
+float updateRate = 3;
+
+int i,j;//Counters
 void setup() {
-pinMode(2, INPUT);
-pinMode(3, INPUT);
-pinMode(4, INPUT);
-pinMode(5, INPUT);
-mtrx.begin();
-Serial.begin(9600);
   // put your setup code here, to run once:
+    /*
+   The MAX72XX is in power-saving mode on startup,
+   we have to do a wakeup call
+   */
+  lc.shutdown(0,false);
+  /* Set the brightness to a medium values */
+  lc.setIntensity(0,8);
+  /* and clear the display */
+  lc.clearDisplay(0);
 
+  //Set Joystick Pins as INPUTs
+  pinMode(varXPin, INPUT);
+  pinMode(varYPin, INPUT);
 }
 
 void loop() {
-char key = keypad.getKey();
-if (game){
-//рисование
-  //лабиринт
-  for(byte i; i <= 7; i ++){
-    for(byte j; j < 8; j ++){
-      if (visual[i][j] == 1){
-        mtrx.dot(i, j);
-      }
-    }
-  }
-  //игрок
-  mtrx.dot(player[1],player[0]);
-  mtrx.update();
+  // put your main code here, to run repeatedly:
+  float deltaTime = calculateDeltaTime();
+  timer += deltaTime;
 
-//ходьба
-  if (key == 'U'){
-    delay(100);
-    if (player[0] > 0){
-      mtrx.clear();
-      player[0] -= 1;
-    }
+  //Check For Inputs
+  int xVal = analogRead(varXPin);
+  int yVal = analogRead(varYPin);
+  
+  if(xVal<100 && snake.dir[1]==0){
+    snake.dir[0] = 0;
+    snake.dir[1] = -1;
+  }else if(xVal >920 && snake.dir[1]==0){
+    snake.dir[0] = 0;
+    snake.dir[1] = 1;
+  }else if(yVal<100 && snake.dir[0]==0){
+    snake.dir[0] = -1;
+    snake.dir[1] = 0;
+  }else if(yVal >920 && snake.dir[0]==0){
+    snake.dir[0] = 1;
+    snake.dir[1] = 0;
   }
-  if (key == 'D'){
-    delay(100);
-    if (player[0] < 7){
-      mtrx.clear();
-      player[0] += 1;
-    }
+  
+  //Update
+  if(timer > 1000/updateRate){
+    timer = 0;
+    Update();
   }
-  if (key == 'L'){
-    delay(100);
-    if (player[1] > 0){
-      mtrx.clear();
-      player[1] -= 1;
-    }
-  }
-  if (key == 'R'){
-    delay(100);
-    mtrx.clear();
-    if (player[1] < 7){
-      player[1] += 1;
-    }
-  }
-    
-// проверка подения
-    if (maze[player[1]][player[0]] == 1){
-      visual[player[1]][player[0]] = 1;
-      player[0] = 0;
-      player[1] = 7;
-    }
+  
+  //Render
+  Render();
+  
+}
 
-//  проверка победы
-    if (maze[player[1]][player[0]] == 2){ 
-    mtrx.clear();
-    mtrx.line(5,5,6,6);
-    mtrx.line(6,5,5,6);
-    mtrx.line(1,1,2,2);
-    mtrx.line(2,1,1,2);
-    mtrx.line(0,4,2,6);
-    mtrx.line(5,6,7,4);
-    mtrx.line(3,6,4,6);
-    mtrx.update();
-    game = false;
-    
+float calculateDeltaTime(){
+  float currentTime = millis();
+  float dt = currentTime - oldTime;
+  oldTime = currentTime;
+  return dt;
+}
+
+void reset(){
+  for(int j=0;j<8;j++){
+    pic[j] = 0;
+  }
+}
+void Update(){
+  reset();//Reset (Clear) the 8x8 LED matrix
+  
+  int newHead[2] = {snake.head[0]+snake.dir[0], snake.head[1]+snake.dir[1]};
+
+  //Handle Borders
+  if(newHead[0]==8){
+    newHead[0]=0;
+  }else if(newHead[0]==-1){
+    newHead[0] = 7;
+  }else if(newHead[1]==8){
+    newHead[1]=0;
+  }else if(newHead[1]==-1){
+    newHead[1]=7;
+  }
+  
+  //Check If The Snake hits itself
+   for(j=0;j<snake.len;j++){
+    if(snake.body[j][0] == newHead[0] && snake.body[j][1] == newHead[1]){
+      //Pause the game for 1 sec then Reset it
+      delay(1000);
+      snake = {{1,5},{{0,5}, {1,5}}, 2, {1,0}};//Reinitialize the snake object
+      apple = {(int)random(0,8),(int)random(0,8)};//Reinitialize an apple object
+      return;
     }
-    
-    delay(50);
-}   
+  }
+
+  //Check if The snake ate the apple
+  if(newHead[0] == apple.rPos && newHead[1] ==apple.cPos){
+    snake.len = snake.len+1;
+    apple.rPos = (int)random(0,8);
+    apple.cPos = (int)random(0,8);
+  }else{
+    removeFirst();//Shifting the array to the left
+  }
+  
+  snake.body[snake.len-1][0]= newHead[0];
+  snake.body[snake.len-1][1]= newHead[1];
+  
+  snake.head[0] = newHead[0];
+  snake.head[1] = newHead[1];
+  
+  //Update the pic Array to Display(snake and apple)
+  for(j=0;j<snake.len;j++){
+    pic[snake.body[j][0]] |= 128 >> snake.body[j][1];
+  }
+  pic[apple.rPos] |= 128 >> apple.cPos;
+  
+}
+
+void Render(){
+  
+   for(i=0;i<8;i++){
+    lc.setRow(0,i,pic[i]);
+   }
+}
+
+void removeFirst(){
+  for(j=1;j<snake.len;j++){
+    snake.body[j-1][0] = snake.body[j][0];
+    snake.body[j-1][1] = snake.body[j][1];
+  }
 }
 ```
+Блок setup содержит настройку параметров матрицы и инициализацию пинов для джойстика как входов. 
+
+В блоке loop проверяется ввод пользователя через джойстик и обработка этого ввода. После идет выполнение движения змейки, обновление экрана и рендер.
+
+Функция calculateDeltaTime() возвращает прошедшее время с предыдущего вызова функции.
+
+Функция reset() обнуляет (очищает) 8x8 светодиодную матрицу.
+
+Функция update() обновляет положение змейки по игровому времени и применяет различные эффекты в игре.
+
+Функция render() обновляет содержимое светодиодной матрицы с учетом обновленных положений змейки и яблока.
+
+Функция removeFirst() сдвигает содержимое массива, удаляя первый элемент в случае, если змейка не съела яблоко.
